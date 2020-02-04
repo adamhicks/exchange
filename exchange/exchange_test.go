@@ -1,20 +1,21 @@
-package exchange
+package main
 
 import (
 	"context"
 	"database/sql"
+	"flag"
+	"fmt"
+	"math/rand"
+	"sync"
+	"testing"
+	"time"
+
 	"exchange/db"
 	"exchange/db/orders"
 	"exchange/db/results"
 	"exchange/gen"
 	"exchange/matcher"
-	"flag"
-	"fmt"
-	"math/rand"
-	"sync"
-	"sync/atomic"
-	"testing"
-	"time"
+	"exchange/ops"
 
 	"github.com/corverroos/unsure"
 	"github.com/luno/jettison/errors"
@@ -180,8 +181,7 @@ func TestPerformance(t *testing.T) {
 	dbc := setupDB(t)
 	ctx := context.Background()
 	r := rand.New(rand.NewSource(0))
-	m := new(Metrics)
-	d := new(depth)
+	m := new(ops.Metrics)
 
 	// Prep base request.
 	req := gen.Request{
@@ -221,7 +221,7 @@ func TestPerformance(t *testing.T) {
 
 	// Start the exchange.
 	go func() {
-		err = Run(ctx2, dbc, WithMetrics(m), WithSnap(d.Set))
+		err = Run(ctx2, dbc, ops.WithMetrics(m))
 		jtest.Assert(t, context.Canceled, err)
 		fmt.Printf("Done run\n")
 	}()
@@ -230,7 +230,7 @@ func TestPerformance(t *testing.T) {
 	go func() {
 		for ctx2.Err() == nil {
 			time.Sleep(time.Second)
-			printMetrics(d, m, t0)
+			printMetrics(m, t0)
 		}
 	}()
 
@@ -327,27 +327,10 @@ func d(i int) decimal.Decimal {
 	return decimal.NewFromInt(int64(i))
 }
 
-func printMetrics(d *depth, m *Metrics, t0 time.Time) {
+func printMetrics(m *ops.Metrics, t0 time.Time) {
 	c := m.Count()
-	b, a := d.Get()
-	fmt.Printf("Metrics: in=%d, out=%d, bids=%d, asks=%d, count=%d, latency=%s, rate=%0f cmds/s\n",
-		m.InputLen(),
-		m.OutputLen(),
-		b,
-		a,
+	fmt.Printf("Metrics: count=%d, latency=%s, rate=%0f cmds/s\n",
 		c,
 		m.MeanLatency(),
 		float64(c)/time.Since(t0).Seconds())
-}
-
-type depth struct {
-	bids, asks int64
-}
-
-func (d *depth) Set(book *matcher.OrderBook) {
-	atomic.StoreInt64(&d.bids, int64(len(book.Bids)))
-	atomic.StoreInt64(&d.asks, int64(len(book.Asks)))
-}
-func (d *depth) Get() (int64, int64) {
-	return atomic.LoadInt64(&d.bids), atomic.LoadInt64(&d.asks)
 }

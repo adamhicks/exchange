@@ -1,4 +1,4 @@
-package exchange
+package ops
 
 import (
 	"sync/atomic"
@@ -6,19 +6,11 @@ import (
 )
 
 type Metrics struct {
-	getInput       func() int
-	getOutput      func() int
-	count          int64 // Used with amotic
+	count          int64 // Used with atomic
 	latencyNanoSum int64
 	latencyCount   int64
 }
 
-func (m *Metrics) InputLen() int {
-	return m.getInput()
-}
-func (m *Metrics) OutputLen() int {
-	return m.getOutput()
-}
 func (m *Metrics) Count() int64 {
 	return atomic.LoadInt64(&m.count)
 }

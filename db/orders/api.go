@@ -40,6 +40,7 @@ func CreateMarketBuy(ctx context.Context, dbc *sql.DB, base decimal.Decimal) (in
 		MarketBase: base,
 	})
 }
+
 func RequestCancel(ctx context.Context, dbc *sql.DB, id int64) error {
 	o, err := Lookup(ctx, dbc, id)
 	if err != nil {

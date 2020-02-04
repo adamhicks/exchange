@@ -33,6 +33,25 @@ create table orders (
   primary key (id)
 );
 
+create table commands (
+  id bigint not null auto_increment,
+  type int not null,
+
+  order_id bigint null,
+  created_at datetime(3) not null,
+
+  primary key (id)
+);
+
+create table command_events (
+  id bigint not null auto_increment,
+  foreign_id bigint not null,
+  timestamp datetime(3) not null,
+  type int not null,
+
+  primary key (id)
+);
+
 create table trades (
   id bigint not null auto_increment,
   seq bigint not null,
