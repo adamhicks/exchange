@@ -8,7 +8,6 @@ import (
 	"github.com/luno/reflex"
 	"github.com/luno/reflex/rpatterns"
 
-	"exchange"
 	"exchange/db/commands"
 	"exchange/db/cursors"
 	"exchange/db/orders"
@@ -31,19 +30,29 @@ func CreateOrderCommands(ctx context.Context, dbc *sql.DB) error {
 }
 
 func (s sequencer) EnqueueOrderCommand(ctx context.Context, _ fate.Fate, e *rpatterns.AckEvent) error {
-	var t exchange.CommandType
-	if reflex.IsType(e.Type, orders.StatusPending) {
-		t = exchange.CommandTypePostOrder
-	} else if reflex.IsType(e.Type, orders.StatusCancelling) {
-		t = exchange.CommandTypeStopOrder
-	} else {
-		// We only care about pending and cancelling states.
+	if !reflex.IsAnyType(e.Type, orders.StatusPending, orders.StatusCancelling){
 		return nil
 	}
 
-	next := exchange.Command{
-		Type:     t,
-		OrderId:  e.ForeignIDInt(),
+	tx, err := s.dbc.Begin()
+	if err != nil {
+		return err
 	}
-	return commands.CreateCommand(ctx, s.dbc, next)
+	defer tx.Rollback()
+
+	if reflex.IsType(e.Type, orders.StatusPending) {
+		n, err := commands.EnqueuePostOrder(ctx, tx, e.ForeignIDInt())
+		if err != nil {
+			return err
+		}
+		defer n()
+	} else if reflex.IsType(e.Type, orders.StatusCancelling) {
+		n, err := commands.EnqueueStopOrder(ctx, tx, e.ForeignIDInt())
+		if err != nil {
+			return err
+		}
+		defer n()
+	}
+
+	return tx.Commit()
 }

@@ -52,48 +52,47 @@ func (f *commandFeeder) StreamCommands(ctx context.Context, from int64, cmdFeed 
 }
 
 func (f commandFeeder) Enqueue(ctx context.Context, _ fate.Fate, e *rpatterns.AckEvent) error {
-	if !reflex.IsType(e.Type, exchange.EventCommandCreated) {
+	var cmd matcher.Command
+
+	switch {
+	case reflex.IsType(e.Type, exchange.CommandTypePostOrder):
+		c, err := makePostCommand(ctx, f.dbc, e.ForeignIDInt())
+		if err != nil {
+			return err
+		}
+		cmd = c
+	case reflex.IsType(e.Type, exchange.CommandTypeStopOrder):
+		c, err := makeStopCommand(ctx, f.dbc, e.ForeignIDInt())
+		if err != nil {
+			return err
+		}
+		cmd = c
+	default:
 		return nil
 	}
 
-	cmd, err := commands.Lookup(ctx, f.dbc, e.ForeignIDInt())
-	if err != nil {
-		return err
-	}
-
-	orderCmd, err := makeCommand(ctx, f.dbc, cmd, e.IDInt())
-	if err != nil {
-		return err
-	}
-	f.cmdFeed <- orderCmd
+	cmd.Sequence = e.IDInt()
+	f.cmdFeed <- cmd
 	return nil
 }
 
-func makeCommand(ctx context.Context, dbc *sql.DB, c *exchange.Command, seq int64) (matcher.Command, error) {
-	o, err := orders.Lookup(ctx, dbc, c.OrderId)
+func makePostCommand(ctx context.Context, dbc *sql.DB, orderID int64) (matcher.Command, error) {
+	o, err := orders.Lookup(ctx, dbc, orderID)
 	if err != nil {
 		return matcher.Command{}, err
 	}
 	var m matcher.CommandType
-	switch c.Type {
-	case exchange.CommandTypePostOrder:
-		if o.Type == orders.TypeMarket {
-			m = matcher.CommandMarket
-		} else if o.Type == orders.TypePostOnly {
-			m = matcher.CommandPostOnly
-		} else if o.Type == orders.TypeLimit {
-			m = matcher.CommandLimit
-		} else {
-			return matcher.Command{}, errors.New("invalid order type", j.KV("order_type", o.Type))
-		}
-	case exchange.CommandTypeStopOrder:
-		m = matcher.CommandCancel
-	default:
-		return matcher.Command{}, errors.New("invalid command type", j.KV("command_type", c))
+	if o.Type == orders.TypeMarket {
+		m = matcher.CommandMarket
+	} else if o.Type == orders.TypePostOnly {
+		m = matcher.CommandPostOnly
+	} else if o.Type == orders.TypeLimit {
+		m = matcher.CommandLimit
+	} else {
+		return matcher.Command{}, errors.New("invalid order type", j.KV("order_type", o.Type))
 	}
 
 	return matcher.Command{
-		Sequence:      seq,
 		Type:          m,
 		IsBuy:         o.IsBuy,
 		OrderID:       o.ID,
@@ -101,5 +100,18 @@ func makeCommand(ctx context.Context, dbc *sql.DB, c *exchange.Command, seq int6
 		LimitVolume:   o.LimitVolume,
 		MarketBase:    o.MarketBase,
 		MarketCounter: o.MarketCounter,
+	}, nil
+}
+
+func makeStopCommand(ctx context.Context, dbc *sql.DB, orderID int64) (matcher.Command, error) {
+	o, err := orders.Lookup(ctx, dbc, orderID)
+	if err != nil {
+		return matcher.Command{}, err
+	}
+
+	return matcher.Command{
+		Type:          matcher.CommandCancel,
+		IsBuy:         o.IsBuy,
+		OrderID:       o.ID,
 	}, nil
 }
