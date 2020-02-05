@@ -39,7 +39,10 @@ create table command_events (
   timestamp datetime(3) not null,
   type int not null,
 
-  primary key (id)
+  metadata blob,
+
+  primary key (id),
+  unique uniq_command (type, foreign_id)
 );
 
 create table trades (

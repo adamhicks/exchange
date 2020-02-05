@@ -3,17 +3,15 @@ package ops
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strconv"
 
 	"github.com/luno/fate"
-	"github.com/luno/jettison/errors"
-	"github.com/luno/jettison/j"
 	"github.com/luno/reflex"
 	"github.com/luno/reflex/rpatterns"
 
 	"exchange"
 	"exchange/db/commands"
-	"exchange/db/orders"
 	"exchange/matcher"
 )
 
@@ -51,22 +49,51 @@ func (f *commandFeeder) StreamCommands(ctx context.Context, from int64, cmdFeed 
 	return reflex.Run(ctx, spec)
 }
 
-func (f commandFeeder) Enqueue(ctx context.Context, _ fate.Fate, e *rpatterns.AckEvent) error {
+func (f commandFeeder) Enqueue(_ context.Context, _ fate.Fate, e *rpatterns.AckEvent) error {
 	var cmd matcher.Command
 
 	switch {
-	case reflex.IsType(e.Type, exchange.CommandTypePostOrder):
-		c, err := makePostCommand(ctx, f.dbc, e.ForeignIDInt())
+	case reflex.IsType(e.Type, exchange.CommandPostLimitOrder):
+		var o exchange.PostLimit
+		err := json.Unmarshal(e.MetaData, &o)
 		if err != nil {
 			return err
 		}
-		cmd = c
-	case reflex.IsType(e.Type, exchange.CommandTypeStopOrder):
-		c, err := makeStopCommand(ctx, f.dbc, e.ForeignIDInt())
+		t := matcher.CommandLimit
+		if o.PostOnly {
+			t = matcher.CommandPostOnly
+		}
+		cmd = matcher.Command{
+			Type:          t,
+			IsBuy:         o.IsBuy,
+			OrderID:       e.ForeignIDInt(),
+			LimitPrice:    o.LimitPrice,
+			LimitVolume:   o.LimitVolume,
+		}
+	case reflex.IsType(e.Type, exchange.CommandPostMarketOrder):
+		var o exchange.PostMarket
+		err := json.Unmarshal(e.MetaData, &o)
 		if err != nil {
 			return err
 		}
-		cmd = c
+		cmd = matcher.Command{
+			Type:          matcher.CommandMarket,
+			IsBuy:         o.IsBuy,
+			OrderID:       e.ForeignIDInt(),
+			MarketBase:    o.MarketBase,
+			MarketCounter: o.MarketCounter,
+		}
+	case reflex.IsType(e.Type, exchange.CommandStopOrder):
+		var o exchange.StopOrder
+		err := json.Unmarshal(e.MetaData, &o)
+		if err != nil {
+			return err
+		}
+		cmd = matcher.Command{
+			Type:          matcher.CommandCancel,
+			IsBuy:         o.IsBuy,
+			OrderID:       e.ForeignIDInt(),
+		}
 	default:
 		return nil
 	}
@@ -74,44 +101,4 @@ func (f commandFeeder) Enqueue(ctx context.Context, _ fate.Fate, e *rpatterns.Ac
 	cmd.Sequence = e.IDInt()
 	f.cmdFeed <- cmd
 	return nil
-}
-
-func makePostCommand(ctx context.Context, dbc *sql.DB, orderID int64) (matcher.Command, error) {
-	o, err := orders.Lookup(ctx, dbc, orderID)
-	if err != nil {
-		return matcher.Command{}, err
-	}
-	var m matcher.CommandType
-	if o.Type == orders.TypeMarket {
-		m = matcher.CommandMarket
-	} else if o.Type == orders.TypePostOnly {
-		m = matcher.CommandPostOnly
-	} else if o.Type == orders.TypeLimit {
-		m = matcher.CommandLimit
-	} else {
-		return matcher.Command{}, errors.New("invalid order type", j.KV("order_type", o.Type))
-	}
-
-	return matcher.Command{
-		Type:          m,
-		IsBuy:         o.IsBuy,
-		OrderID:       o.ID,
-		LimitPrice:    o.LimitPrice,
-		LimitVolume:   o.LimitVolume,
-		MarketBase:    o.MarketBase,
-		MarketCounter: o.MarketCounter,
-	}, nil
-}
-
-func makeStopCommand(ctx context.Context, dbc *sql.DB, orderID int64) (matcher.Command, error) {
-	o, err := orders.Lookup(ctx, dbc, orderID)
-	if err != nil {
-		return matcher.Command{}, err
-	}
-
-	return matcher.Command{
-		Type:          matcher.CommandCancel,
-		IsBuy:         o.IsBuy,
-		OrderID:       o.ID,
-	}, nil
 }

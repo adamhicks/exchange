@@ -305,7 +305,7 @@ func TestPerformance(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for last market order to be in the results.
-	waitFor(t, time.Minute, func() bool {
+	waitFor(t, 2*time.Minute, func() bool {
 		r, err := results.LookupLast(ctx, dbc)
 		if errors.Is(err, sql.ErrNoRows) {
 			return false
