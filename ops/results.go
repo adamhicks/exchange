@@ -35,7 +35,14 @@ func CreateResultsLog(ctx context.Context, dbc *sql.DB, options ...Option) error
 	out := make(chan matcher.Result, 100)
 	go func() {
 		defer close(out)
-		err := ms.StreamMatcher(ctx, EmptySnapshot, NewCommandFeed(dbc).StreamCommands, seq, out)
+		err := ms.StreamMatcher(
+			ctx,
+			EmptySnapshot,
+			NewCommandFeed(dbc).StreamCommands,
+			seq,
+			NewSnapshotter(dbc).StoreSnapshot,
+			out,
+		)
 		if err != nil {
 			log.Error(ctx, err)
 		}

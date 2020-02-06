@@ -5,6 +5,7 @@ import (
 
 	"github.com/luno/jettison/errors"
 	"github.com/luno/jettison/j"
+	"github.com/luno/jettison/log"
 )
 
 // Match applies commands to the order book and outputs
@@ -24,27 +25,24 @@ func Match(ctx context.Context, book OrderBook,
 		case cmd = <-input:
 		}
 
-		if cmd.Sequence <= book.Sequence {
+		if cmd.Sequence <= book.CommandSequence {
 			// Ignore old commands
-			output <- Result{
-				Sequence: cmd.Sequence,
-				OrderID:  cmd.OrderID,
-				Type:     TypeCommandOld,
-			}
+			log.Info(ctx, "ignoring old command", j.KV("command_seq", cmd.Sequence))
 			continue
-		} else if cmd.Sequence > book.Sequence+1 {
+		} else if cmd.Sequence > book.CommandSequence + 1 {
 			return errors.New("out of order command",
-				j.MKV{"expect": book.Sequence + 1, "got": cmd.Sequence})
+				j.MKV{"expect": book.CommandSequence + 1, "got": cmd.Sequence})
 		}
 
 		l := latency()
 		typ, tl := match(&book, cmd, scale)
 		l()
 
-		book.Sequence = cmd.Sequence
+		book.CommandSequence = cmd.Sequence
+		book.ResultSequence++
 
 		output <- Result{
-			Sequence: cmd.Sequence,
+			Sequence: book.ResultSequence,
 			OrderID:  cmd.OrderID,
 			Type:     typ,
 			Trades:   tl,

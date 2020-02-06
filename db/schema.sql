@@ -45,6 +45,16 @@ create table command_events (
   unique uniq_command (type, foreign_id)
 );
 
+create table snapshots (
+    command_id bigint not null,
+    match_sequence bigint not null,
+
+    orderbook blob,
+
+    primary key (command_id),
+    unique index match_sequence (match_sequence)
+);
+
 create table trades (
   id bigint not null auto_increment,
   seq bigint not null,

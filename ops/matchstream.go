@@ -2,7 +2,6 @@ package ops
 
 import (
 	"context"
-	"sync"
 
 	"github.com/luno/jettison/log"
 
@@ -22,9 +21,6 @@ func WithMetrics(m *Metrics) Option {
 }
 
 type MatcherStream struct {
-	snapMu sync.Mutex
-	snapshot matcher.OrderBook
-
 	incCount func()
 	latency func() func()
 }
@@ -40,17 +36,9 @@ func NewMatcherStream(options ...Option) *MatcherStream {
 	return s
 }
 
-func (ms *MatcherStream) updateSnapshot(book *matcher.OrderBook){
-	ms.snapMu.Lock()
-	defer ms.snapMu.Unlock()
-
-	ms.incCount()
-	ms.snapshot = *book
-}
-
 func (ms *MatcherStream) StreamMatcher(
 	ctx context.Context, ss SnapshotProvider, cs CommandStream,
-	from int64, results chan matcher.Result,
+	from int64, snapshots func(*matcher.OrderBook), results chan matcher.Result,
 ) error {
 	ob, err := ss(ctx, from)
 	if err != nil {
@@ -59,10 +47,10 @@ func (ms *MatcherStream) StreamMatcher(
 	in := make(chan matcher.Command, 1000)
 	go func() {
 		defer close(in)
-		err = cs(ctx, ob.Sequence, in)
+		err = cs(ctx, ob.CommandSequence, in)
 		if err != nil {
 			log.Error(ctx, err)
 		}
 	}()
-	return matcher.Match(ctx, ob, in, results, 8, ms.updateSnapshot, ms.latency)
+	return matcher.Match(ctx, ob, in, results, 8, snapshots, ms.latency)
 }

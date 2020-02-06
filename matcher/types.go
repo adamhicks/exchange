@@ -42,7 +42,8 @@ func (o Order) Base() decimal.Decimal {
 }
 
 type OrderBook struct {
-	Sequence int64
+	CommandSequence int64
+	ResultSequence int64
 	Bids     []Order
 	Asks     []Order
 }
